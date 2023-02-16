@@ -10,3 +10,4 @@ wordcloud==1.8.2.2
 matplotlib==3.6.2
 topically==0.0.5 
 gcsfs==2023.1.0
+extra-streamlit-components

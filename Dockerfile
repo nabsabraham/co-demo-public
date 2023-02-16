@@ -20,4 +20,4 @@ COPY . /app
 WORKDIR /app
 
 #Run the application on port 8080
-ENTRYPOINT ["streamlit", "run", "app.py", "--server.port=8080", "--server.address=0.0.0.0"]
+ENTRYPOINT ["streamlit", "run", "app.py", "--browser.gatherUsageStats False", "--server.port=8080", "--server.address=0.0.0.0"]
