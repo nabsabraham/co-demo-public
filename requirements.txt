@@ -1,3 +1,12 @@
-streamlit 
-pandas 
+streamlit==1.15.2
+streamlit-extras==0.2.4
+streamlit-option-menu==0.3.2
+streamlit-aggrid==0.3.3
+pandas==1.5.1
+numpy 
+bertopic==0.12.0
 cohere
+wordcloud==1.8.2.2
+matplotlib==3.6.2
+topically==0.0.5 
+gcsfs==2023.1.0
