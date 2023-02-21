@@ -1,8 +1,20 @@
+import ast
+
 import streamlit as st
 from streamlit_option_menu import option_menu
 from streamlit_extras.switch_page_button import switch_page
 import torch
 from torch import Tensor
+from streamlit_extras.switch_page_button import switch_page
+import torch
+from sentence_transformers import util
+import umap, hdbscan
+import pandas as pd
+import numpy as np
+from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
+from wordcloud import WordCloud
+
 
 def init_ss(ss_key, ss_value):
     """
@@ -10,27 +22,63 @@ def init_ss(ss_key, ss_value):
     If present already, just return session state
     """
     if ss_key not in st.session_state:
-        st.session_state[ss_key] =  ss_value
-    return st.session_state[ss_key] 
-    
+        st.session_state[ss_key] = ss_value
+    return st.session_state[ss_key]
+
+
+def switch_menu(menu):
+    current_page = st.session_state["current_page"]
+    if current_page == menu:
+        pass
+    else:
+        print(f"switching from {current_page} to {menu}")
+        st.session_state["current_page"] = menu
+        # Menu routing
+        if menu == "Home":
+            switch_page("app")
+        elif menu == "Import":
+            switch_page("Import")
+        # elif menu == "Embed":
+        #     switch_page("Embed")
+        elif menu == "Cluster":
+            switch_page("Cluster")
+        elif menu == "Visualize":
+            switch_page("Visualize")
+
+
 def top_menu(index):
     """
     Nav Menu
     """
     menu = option_menu(
-        None, ["Home", "Import",  "Charts"], 
-        icons=['house', 'cloud-upload', 'graph-up'], 
+        None,
+        # ["Home", "Import", "Embed", "Cluster", "Visualize"],
+        ["Home", "Import", "Cluster", "Visualize"],
+        icons=[
+            "house",
+            # "card-list",
+            "cloud-upload",
+            # "explicit",
+            "collection",
+            "graph-up",
+        ],
         menu_icon="cast",
-        default_index=index, 
+        default_index=index,
         orientation="horizontal",
         styles={
             "container": {"padding": "0!important", "background-color": "#fafafa"},
-            "icon": {"color": "orange", "font-size": "20px"}, 
-            "nav-link": {"font-size": "20px", "text-align": "left", "margin":"0px", "--hover-color": "#eee"},
+            "icon": {"color": "orange", "font-size": "20px"},
+            "nav-link": {
+                "font-size": "16px",
+                "text-align": "left",
+                "margin": "0px",
+                "--hover-color": "#eee",
+            },
             "nav-link-selected": {"background-color": "black"},
-        }
+        },
     )
     return menu
+
 
 def streamlit_header_and_footer_setup():
     """
@@ -38,9 +86,11 @@ def streamlit_header_and_footer_setup():
     """
     st.markdown(
         '<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">',
-        unsafe_allow_html=True)
-    
-    st.markdown("""
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
         <style>
         .navbar-nav{
             display: flex;
@@ -68,7 +118,9 @@ def streamlit_header_and_footer_setup():
                 </ul>
             </div>
         </nav>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
     # Hide Streamlit style in top right
     hide_st_style = """
@@ -86,19 +138,20 @@ def streamlit_header_and_footer_setup():
                 top: 2px;
             }
         </style>
-    """ 
+    """
     st.markdown(hide_st_style, unsafe_allow_html=True)
 
     st.markdown(
-        f'''
+        f"""
             <style>
                 .sidebar .sidebar-content {{
                     width: 0px;
                 }}
             </style>
-        ''',
-        unsafe_allow_html=True
+        """,
+        unsafe_allow_html=True,
     )
+
 
 def cos_sim(a: Tensor, b: Tensor):
     """
@@ -131,9 +184,9 @@ def community_detection(
     in decreasing order.
     """
     if not isinstance(embeddings, torch.Tensor):
-        embeddings = torch.tensor(embeddings) # (num_samples, embed_dim)
+        embeddings = torch.tensor(embeddings)  # (num_samples, embed_dim)
 
-    #normalize all at once to same repeated compute
+    # normalize all at once to same repeated compute
     embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
 
     threshold = torch.tensor(threshold, device=embeddings.device)
@@ -146,7 +199,6 @@ def community_detection(
     for start_idx in range(0, len(embeddings), batch_size):
         # Compute cosine similarity scores
         cos_scores = cos_sim(embeddings[start_idx : start_idx + batch_size], embeddings)
-
 
         # Evren Note:
         # this is fast since it is parallel over the batch dim
@@ -188,3 +240,127 @@ def community_detection(
     unique_communities = sorted(unique_communities, key=lambda x: len(x), reverse=True)
 
     return unique_communities
+
+
+def on_value_change(value_str, new_value):
+    st.session_state[value_str] = new_value
+
+
+def get_embeddings(model, text, api_key):
+    co = cohere.Client(api_key)
+    response = co.embed(model=model, texts=text)
+    embeddings = response.embeddings
+    return embeddings
+
+
+def generate_umap_embeddings(
+    embeddings, n_neighbors=15, n_components=5, random_state=None
+):
+    umap_embeddings = umap.UMAP(
+        n_neighbors=n_neighbors,
+        n_components=n_components,
+        metric="cosine",
+        random_state=random_state,
+    ).fit_transform(embeddings)
+
+    return umap_embeddings
+
+
+def get_pca_embeddings(embeddings=None, n_components=2):
+    pca = PCA(n_components=n_components)
+    pca_embeddings = pca.fit_transform(embeddings)
+    return pca_embeddings
+
+
+def generate_clusters_berttopic(
+    message_embeddings, n_neighbors, n_components, min_cluster_size, random_state=None
+):
+    """
+    Generate HDBSCAN cluster object after reducing embedding dimensionality with UMAP
+    """
+
+    umap_embeddings = generate_umap_embeddings(
+        message_embeddings, n_neighbors, n_components
+    )
+
+    clusters = hdbscan.HDBSCAN(
+        min_cluster_size=min_cluster_size,
+        metric="euclidean",
+        cluster_selection_method="eom",
+    ).fit(umap_embeddings)
+
+    return umap_embeddings, clusters
+
+
+def process_clusterdf(df):
+    df["elements"] = df["elements"].apply(lambda x: ast.literal_eval(str(x)))
+    df = (
+        df.explode(["elements", "text_ids"])
+        .rename(
+            columns={
+                "elements": "text",
+                "text_ids": "text_id",
+                "description": "Cluster Name",
+                "cluster_id": "Cluster",
+            }
+        )
+        .reset_index(drop=True)
+    )
+    return df
+
+
+def show_wordcloud(dataframe, column_name):
+    """
+    Show wordcloud based on user selection
+    """
+    text = " ".join(review for review in dataframe[column_name])
+    wordcloud = WordCloud(
+        max_font_size=50, max_words=100, background_color="white"
+    ).generate(text)
+    plt.figure()
+    fig = plt.figure(figsize=(7, 4))
+    plt.imshow(wordcloud, interpolation="bilinear")
+    plt.axis("off")
+    fig.savefig("figure_name.png")
+    from PIL import Image
+
+    image = Image.open("figure_name.png")
+    st.image(image)
+
+
+def rename_clusters(change_fc):
+    """
+    Rename a cluster based on user selections
+    """
+    if st.session_state.change_full_cluster:
+        df.loc[
+            df["Cluster Name"] == st.session_state.old_cluster_label, "Cluster Name"
+        ] = st.session_state.new_cluster_label
+        st.session_state.change_full_cluster = False
+    else:
+        df.at[
+            st.session_state.row_idx, "Cluster Name"
+        ] = st.session_state.new_cluster_label
+    st.session_state["processed_df"] = df
+
+
+def join_pca_cluster_dfs(cluster_df, pca_df):
+    merged = cluster_df.merge(right=pca_df, how="inner", on="text_id")
+    return merged
+
+
+@st.experimental_memo
+def compute_pca(embed_df) -> pd.DataFrame:
+    embed_df["embedding"] = embed_df["embedding"].apply(
+        lambda x: np.array(x).astype(np.float16).reshape(1, -1)
+    )
+    X = np.concatenate(embed_df["embedding"])
+    pca = PCA(n_components=2)
+    result = pca.fit_transform(X)
+    res = pd.DataFrame(result)
+    res = res.reset_index().rename(columns={"index": "text_id", 0: "x", 1: "y"})
+    return res
+
+
+def get_topk_clusters(df, k):
+    return df["Cluster"].value_counts()[:k].reset_index()["index"].tolist()
